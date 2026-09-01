@@ -1,17 +1,20 @@
 import { useState, useEffect } from 'react'
 
-// Bug 1: useEffect has no dependency array []
-// This means it runs after EVERY render, causing an infinite loop:
-//   fetch → setActivities → re-render → fetch → setActivities → ...
-
 function App() {
   const [activities, setActivities] = useState([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/activities')
-      .then((res) => res.json())
-      .then((data) => setActivities(Object.entries(data)))
-  })  // <-- missing [] here
+    async function loadActivities() {
+      const res = await fetch('/activities')
+      const data = await res.json()
+      setActivities(Object.entries(data))
+      setLoading(false)
+    }
+    loadActivities()
+  }, [])
+
+  if (loading) return <p>Loading activities...</p>
 
   return (
     <div>
