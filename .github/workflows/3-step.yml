@@ -1,0 +1,111 @@
+name: Step 3 - State & Events Check
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  NEXT_STEP_FILE: ".github/steps/4-step.md"
+
+jobs:
+  check_step_3:
+    name: Check Exercise 03 - State & Events
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get exercise toolkit
+        uses: actions/checkout@v4
+        with:
+          repository: skills/exercise-toolkit
+          path: exercise-toolkit
+          ref: v0.8.1
+
+      - name: Find exercise issue
+        id: find_issue
+        run: |
+          ISSUE_NUMBER=$(gh issue list --json number,title \
+            --jq '.[] | select(.title | contains("React Foundations")) | .number' \
+            | head -1)
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for step-3 label
+        id: check_label
+        run: |
+          LABELS=$(gh issue view ${{ steps.find_issue.outputs.issue_number }} \
+            --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+          if echo "$LABELS" | grep -q "^step-3$"; then
+            echo "active=true" >> $GITHUB_OUTPUT
+          else
+            echo "active=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run checks
+        if: steps.check_label.outputs.active == 'true'
+        id: run_checks
+        run: |
+          PASS=true
+
+          # LikeButton.jsx: must import and use useState
+          if ! grep -q "useState" exercises/03-state-events/starter/src/components/LikeButton.jsx 2>/dev/null; then
+            echo "::warning::LikeButton.jsx does not use useState"
+            PASS=false
+          fi
+
+          # LikeButton.jsx: must have onClick= (JSX prop, not just text in comments)
+          if ! grep -q "onClick=" exercises/03-state-events/starter/src/components/LikeButton.jsx 2>/dev/null; then
+            echo "::warning::LikeButton.jsx is missing an onClick= prop (check for lowercase onclick)"
+            PASS=false
+          fi
+
+          # LikeButton.jsx: must not use let liked (plain variable mutation)
+          if grep -q "let liked" exercises/03-state-events/starter/src/components/LikeButton.jsx 2>/dev/null; then
+            echo "::warning::LikeButton.jsx still uses 'let liked' instead of useState"
+            PASS=false
+          fi
+
+          # FilterBar.jsx: buttons must have an onClick= prop (not just in a comment)
+          if ! grep -q "onClick=" exercises/03-state-events/starter/src/components/FilterBar.jsx 2>/dev/null; then
+            echo "::warning::FilterBar.jsx buttons are still missing onClick= handlers"
+            PASS=false
+          fi
+
+          echo "pass=$PASS" >> $GITHUB_OUTPUT
+
+      - name: Post next step on success
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'true'
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ github.repository }}
+          issue-number: ${{ steps.find_issue.outputs.issue_number }}
+          file: ${{ env.NEXT_STEP_FILE }}
+          vars: |
+            full_repo_name: ${{ github.repository }}
+            login: ${{ github.actor }}
+
+      - name: Update labels on success
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'true'
+        run: |
+          gh issue edit ${{ steps.find_issue.outputs.issue_number }} \
+            --remove-label "step-3" --add-label "step-4"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post try-again on failure
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'false'
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ github.repository }}
+          issue-number: ${{ steps.find_issue.outputs.issue_number }}
+          file: exercise-toolkit/markdown-templates/step-feedback/try-again.md
+          vars: |
+            login: ${{ github.actor }}

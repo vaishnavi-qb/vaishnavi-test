@@ -1,0 +1,129 @@
+name: Step 7 - Routing Check
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  REVIEW_FILE: ".github/steps/x-review.md"
+
+jobs:
+  check_step_7:
+    name: Check Exercise 07 - Routing
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get exercise toolkit
+        uses: actions/checkout@v4
+        with:
+          repository: skills/exercise-toolkit
+          path: exercise-toolkit
+          ref: v0.8.1
+
+      - name: Find exercise issue
+        id: find_issue
+        run: |
+          ISSUE_NUMBER=$(gh issue list --json number,title \
+            --jq '.[] | select(.title | contains("React Foundations")) | .number' \
+            | head -1)
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for step-7 label
+        id: check_label
+        run: |
+          LABELS=$(gh issue view ${{ steps.find_issue.outputs.issue_number }} \
+            --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+          if echo "$LABELS" | grep -q "^step-7$"; then
+            echo "active=true" >> $GITHUB_OUTPUT
+          else
+            echo "active=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run checks
+        if: steps.check_label.outputs.active == 'true'
+        id: run_checks
+        run: |
+          PASS=true
+
+          # main.jsx: must actually use <BrowserRouter> tag (not just in a comment)
+          if ! grep -v "^\s*//" exercises/07-routing/starter/src/main.jsx \
+             | grep -q "BrowserRouter"; then
+            echo "::warning::main.jsx does not wrap <App /> in <BrowserRouter>"
+            PASS=false
+          fi
+
+          # App.jsx: must use <Link> instead of bare <a href>
+          if grep -v "^\s*//" exercises/07-routing/starter/src/App.jsx \
+             | grep -q "<a href"; then
+            echo "::warning::App.jsx still uses <a href> — replace with React Router <Link to=>"
+            PASS=false
+          fi
+
+          # App.jsx: must import and use Link from react-router-dom
+          if ! grep -q "Link" exercises/07-routing/starter/src/App.jsx 2>/dev/null; then
+            echo "::warning::App.jsx does not use the React Router <Link> component"
+            PASS=false
+          fi
+
+          # ActivityDetailPage.jsx: must call useParams() in actual code (not just in a comment)
+          if ! grep -v "^\s*//" exercises/07-routing/starter/src/pages/ActivityDetailPage.jsx \
+             | grep -q "useParams"; then
+            echo "::warning::ActivityDetailPage.jsx does not call useParams() to read the activity name from the URL"
+            PASS=false
+          fi
+
+          # ActivityDetailPage.jsx: must not hardcode 'Chess Club' in JSX/code
+          if grep -v "^\s*//" exercises/07-routing/starter/src/pages/ActivityDetailPage.jsx \
+             | grep -q "Chess Club"; then
+            echo "::warning::ActivityDetailPage.jsx still hardcodes the activity name — use useParams() instead"
+            PASS=false
+          fi
+
+          echo "pass=$PASS" >> $GITHUB_OUTPUT
+
+      - name: Post completion review on success
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'true'
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ github.repository }}
+          issue-number: ${{ steps.find_issue.outputs.issue_number }}
+          file: ${{ env.REVIEW_FILE }}
+          vars: |
+            full_repo_name: ${{ github.repository }}
+            login: ${{ github.actor }}
+
+      - name: Remove step-7 label and add completion label
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'true'
+        run: |
+          gh issue edit ${{ steps.find_issue.outputs.issue_number }} \
+            --remove-label "step-7" --add-label "done"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Close the exercise issue
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'true'
+        run: |
+          gh issue close ${{ steps.find_issue.outputs.issue_number }} \
+            --comment "🎉 You completed all 7 exercises! The issue is now closed. See the review above for your next steps."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post try-again on failure
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'false'
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ github.repository }}
+          issue-number: ${{ steps.find_issue.outputs.issue_number }}
+          file: exercise-toolkit/markdown-templates/step-feedback/try-again.md
+          vars: |
+            login: ${{ github.actor }}

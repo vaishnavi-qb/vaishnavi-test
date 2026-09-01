@@ -1,0 +1,109 @@
+name: Step 5 - useEffect & Fetch Check
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  NEXT_STEP_FILE: ".github/steps/6-step.md"
+
+jobs:
+  check_step_5:
+    name: Check Exercise 05 - useEffect & Fetch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get exercise toolkit
+        uses: actions/checkout@v4
+        with:
+          repository: skills/exercise-toolkit
+          path: exercise-toolkit
+          ref: v0.8.1
+
+      - name: Find exercise issue
+        id: find_issue
+        run: |
+          ISSUE_NUMBER=$(gh issue list --json number,title \
+            --jq '.[] | select(.title | contains("React Foundations")) | .number' \
+            | head -1)
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for step-5 label
+        id: check_label
+        run: |
+          LABELS=$(gh issue view ${{ steps.find_issue.outputs.issue_number }} \
+            --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+          if echo "$LABELS" | grep -q "^step-5$"; then
+            echo "active=true" >> $GITHUB_OUTPUT
+          else
+            echo "active=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run checks
+        if: steps.check_label.outputs.active == 'true'
+        id: run_checks
+        run: |
+          PASS=true
+
+          # App.jsx: useEffect must have a dependency array (], [])
+          if ! grep -qE "useEffect\(.*\],\s*\[\]" exercises/05-useeffect-fetch/starter/src/App.jsx 2>/dev/null; then
+            # Check the simpler pattern across lines: }, [])
+            if ! grep -q "\}, \[\])" exercises/05-useeffect-fetch/starter/src/App.jsx 2>/dev/null; then
+              echo "::warning::App.jsx useEffect is missing the empty dependency array []"
+              PASS=false
+            fi
+          fi
+
+          # useActivities.js: must NOT use async arrow as direct useEffect callback
+          if grep -q "useEffect(async" exercises/05-useeffect-fetch/starter/src/hooks/useActivities.js 2>/dev/null; then
+            echo "::warning::useActivities.js still passes an async callback directly to useEffect"
+            PASS=false
+          fi
+
+          # useActivities.js: must use the inner-async pattern (define function inside)
+          if ! grep -qE "async function|const load|const fetch" \
+            exercises/05-useeffect-fetch/starter/src/hooks/useActivities.js 2>/dev/null; then
+            echo "::warning::useActivities.js should define an async function inside useEffect, not use async callback"
+            PASS=false
+          fi
+
+          echo "pass=$PASS" >> $GITHUB_OUTPUT
+
+      - name: Post next step on success
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'true'
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ github.repository }}
+          issue-number: ${{ steps.find_issue.outputs.issue_number }}
+          file: ${{ env.NEXT_STEP_FILE }}
+          vars: |
+            full_repo_name: ${{ github.repository }}
+            login: ${{ github.actor }}
+
+      - name: Update labels on success
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'true'
+        run: |
+          gh issue edit ${{ steps.find_issue.outputs.issue_number }} \
+            --remove-label "step-5" --add-label "step-6"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post try-again on failure
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'false'
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ github.repository }}
+          issue-number: ${{ steps.find_issue.outputs.issue_number }}
+          file: exercise-toolkit/markdown-templates/step-feedback/try-again.md
+          vars: |
+            login: ${{ github.actor }}

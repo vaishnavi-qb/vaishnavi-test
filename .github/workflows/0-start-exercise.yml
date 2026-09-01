@@ -1,0 +1,87 @@
+name: Step 0 - Start Exercise
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+  issues: write
+
+jobs:
+  start_exercise:
+    if: ${{ !github.event.repository.is_template }}
+    name: Start Exercise
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Prevent this workflow and Step 1 from re-running on the README commit.
+      - name: Pause start and step-1 workflows
+        run: |
+          gh workflow disable "0-start-exercise.yml" || true
+          gh workflow disable "1-step.yml" || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create progress-tracking labels
+        run: |
+          for label in step-1 step-2 step-3 step-4 step-5 step-6 step-7 done; do
+            gh label create "$label" --force \
+              --description "React Foundations progress: $label" \
+              --color "0075ca"
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create exercise issue
+        id: create_issue
+        run: |
+          ISSUE_URL=$(gh issue create \
+            --title "React Foundations: Beginner Track" \
+            --body "$(cat .github/steps/1-step.md)")
+          ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
+          echo "issue_url=$ISSUE_URL" >> $GITHUB_OUTPUT
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+          echo "Created issue #$ISSUE_NUMBER"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add step-1 label
+        run: |
+          gh issue edit ${{ steps.create_issue.outputs.issue_number }} \
+            --add-label "step-1"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post watching-for-progress comment
+        run: |
+          gh issue comment ${{ steps.create_issue.outputs.issue_number }} \
+            --body-file .github/steps/watching-comment.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update README with Go to Exercise
+        run: |
+          sed \
+            -e "s|LOGIN_PLACEHOLDER|${{ github.actor }}|g" \
+            -e "s|ISSUE_URL_PLACEHOLDER|${{ steps.create_issue.outputs.issue_url }}|g" \
+            .github/steps/exercise-started.md > README.md
+
+      - name: Commit Start exercise
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "Start exercise"
+          git push
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable Step 1 workflow
+        run: gh workflow enable "1-step.yml"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,112 @@
+name: Step 2 - JSX & Components Check
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  NEXT_STEP_FILE: ".github/steps/3-step.md"
+
+jobs:
+  check_step_2:
+    name: Check Exercise 02 - JSX & Components
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get exercise toolkit
+        uses: actions/checkout@v4
+        with:
+          repository: skills/exercise-toolkit
+          path: exercise-toolkit
+          ref: v0.8.1
+
+      - name: Find exercise issue
+        id: find_issue
+        run: |
+          ISSUE_NUMBER=$(gh issue list --json number,title \
+            --jq '.[] | select(.title | contains("React Foundations")) | .number' \
+            | head -1)
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for step-2 label
+        id: check_label
+        run: |
+          LABELS=$(gh issue view ${{ steps.find_issue.outputs.issue_number }} \
+            --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+          if echo "$LABELS" | grep -q "^step-2$"; then
+            echo "active=true" >> $GITHUB_OUTPUT
+          else
+            echo "active=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run checks
+        if: steps.check_label.outputs.active == 'true'
+        id: run_checks
+        run: |
+          PASS=true
+
+          # App.jsx: no bare `class=` attributes (should use className)
+          if grep -q 'class=' exercises/02-jsx-components/starter/src/App.jsx 2>/dev/null; then
+            echo "::warning::App.jsx still uses class= instead of className="
+            PASS=false
+          fi
+
+          # App.jsx: should have a single wrapper element (Fragment or div)
+          if ! grep -qE "<>|<div|<main|<section" exercises/02-jsx-components/starter/src/App.jsx 2>/dev/null; then
+            echo "::warning::App.jsx may be missing a root wrapper element"
+            PASS=false
+          fi
+
+          # ActivityCard.jsx: no bare class= attributes
+          if grep -q 'class=' exercises/02-jsx-components/starter/src/components/ActivityCard.jsx 2>/dev/null; then
+            echo "::warning::ActivityCard.jsx still uses class= instead of className="
+            PASS=false
+          fi
+
+          # ActivityCard.jsx: should accept and use props
+          if ! grep -qE "\bprops\b|\{ *(title|name|activity)" \
+            exercises/02-jsx-components/starter/src/components/ActivityCard.jsx 2>/dev/null; then
+            echo "::warning::ActivityCard.jsx does not appear to use props"
+            PASS=false
+          fi
+
+          echo "pass=$PASS" >> $GITHUB_OUTPUT
+
+      - name: Post next step on success
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'true'
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ github.repository }}
+          issue-number: ${{ steps.find_issue.outputs.issue_number }}
+          file: ${{ env.NEXT_STEP_FILE }}
+          vars: |
+            full_repo_name: ${{ github.repository }}
+            login: ${{ github.actor }}
+
+      - name: Update labels on success
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'true'
+        run: |
+          gh issue edit ${{ steps.find_issue.outputs.issue_number }} \
+            --remove-label "step-2" --add-label "step-3"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post try-again on failure
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'false'
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ github.repository }}
+          issue-number: ${{ steps.find_issue.outputs.issue_number }}
+          file: exercise-toolkit/markdown-templates/step-feedback/try-again.md
+          vars: |
+            login: ${{ github.actor }}

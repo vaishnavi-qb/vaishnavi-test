@@ -1,0 +1,119 @@
+name: Step 4 - Lists & Forms Check
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  NEXT_STEP_FILE: ".github/steps/5-step.md"
+
+jobs:
+  check_step_4:
+    name: Check Exercise 04 - Lists & Forms
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get exercise toolkit
+        uses: actions/checkout@v4
+        with:
+          repository: skills/exercise-toolkit
+          path: exercise-toolkit
+          ref: v0.8.1
+
+      - name: Find exercise issue
+        id: find_issue
+        run: |
+          ISSUE_NUMBER=$(gh issue list --json number,title \
+            --jq '.[] | select(.title | contains("React Foundations")) | .number' \
+            | head -1)
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for step-4 label
+        id: check_label
+        run: |
+          LABELS=$(gh issue view ${{ steps.find_issue.outputs.issue_number }} \
+            --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+          if echo "$LABELS" | grep -q "^step-4$"; then
+            echo "active=true" >> $GITHUB_OUTPUT
+          else
+            echo "active=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run checks
+        if: steps.check_label.outputs.active == 'true'
+        id: run_checks
+        run: |
+          PASS=true
+
+          # ActivityList.jsx: list items must have a key= prop
+          if ! grep -q "key=" exercises/04-lists-forms/starter/src/components/ActivityList.jsx 2>/dev/null; then
+            echo "::warning::ActivityList.jsx list items are missing the key= prop"
+            PASS=false
+          fi
+
+          # SignupForm.jsx: must call e.preventDefault() on a non-comment line
+          if ! grep -v "^\s*//" exercises/04-lists-forms/starter/src/components/SignupForm.jsx \
+             | grep -q "preventDefault"; then
+            echo "::warning::SignupForm.jsx handleSubmit is missing e.preventDefault() call"
+            PASS=false
+          fi
+
+          # SignupForm.jsx: handleSubmit must accept an event parameter
+          if ! grep -qE "handleSubmit\s*\(\s*e\b|handleSubmit\s*\(\s*event\b" \
+            exercises/04-lists-forms/starter/src/components/SignupForm.jsx 2>/dev/null; then
+            echo "::warning::SignupForm.jsx handleSubmit is missing its event parameter"
+            PASS=false
+          fi
+
+          # SignupForm.jsx: input must be controlled — needs value= prop
+          if ! grep -q "value=" exercises/04-lists-forms/starter/src/components/SignupForm.jsx 2>/dev/null; then
+            echo "::warning::SignupForm.jsx input is not controlled (missing value= prop)"
+            PASS=false
+          fi
+
+          # SignupForm.jsx: must have onChange handler
+          if ! grep -q "onChange" exercises/04-lists-forms/starter/src/components/SignupForm.jsx 2>/dev/null; then
+            echo "::warning::SignupForm.jsx input is missing an onChange handler"
+            PASS=false
+          fi
+
+          echo "pass=$PASS" >> $GITHUB_OUTPUT
+
+      - name: Post next step on success
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'true'
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ github.repository }}
+          issue-number: ${{ steps.find_issue.outputs.issue_number }}
+          file: ${{ env.NEXT_STEP_FILE }}
+          vars: |
+            full_repo_name: ${{ github.repository }}
+            login: ${{ github.actor }}
+
+      - name: Update labels on success
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'true'
+        run: |
+          gh issue edit ${{ steps.find_issue.outputs.issue_number }} \
+            --remove-label "step-4" --add-label "step-5"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post try-again on failure
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'false'
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ github.repository }}
+          issue-number: ${{ steps.find_issue.outputs.issue_number }}
+          file: exercise-toolkit/markdown-templates/step-feedback/try-again.md
+          vars: |
+            login: ${{ github.actor }}

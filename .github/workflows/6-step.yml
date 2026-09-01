@@ -1,0 +1,124 @@
+name: Step 6 - API Integration Check
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+
+env:
+  NEXT_STEP_FILE: ".github/steps/7-step.md"
+
+jobs:
+  check_step_6:
+    name: Check Exercise 06 - API Integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get exercise toolkit
+        uses: actions/checkout@v4
+        with:
+          repository: skills/exercise-toolkit
+          path: exercise-toolkit
+          ref: v0.8.1
+
+      - name: Find exercise issue
+        id: find_issue
+        run: |
+          ISSUE_NUMBER=$(gh issue list --json number,title \
+            --jq '.[] | select(.title | contains("React Foundations")) | .number' \
+            | head -1)
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for step-6 label
+        id: check_label
+        run: |
+          LABELS=$(gh issue view ${{ steps.find_issue.outputs.issue_number }} \
+            --json labels --jq '.labels[].name' 2>/dev/null || echo "")
+          if echo "$LABELS" | grep -q "^step-6$"; then
+            echo "active=true" >> $GITHUB_OUTPUT
+          else
+            echo "active=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run checks
+        if: steps.check_label.outputs.active == 'true'
+        id: run_checks
+        run: |
+          PASS=true
+
+          # api/activities.js: endpoint must be /activities (not /activity)
+          # Check on non-comment lines only
+          if grep -v "^\s*//" exercises/06-api-integration/starter/src/api/activities.js \
+             | grep -q "/activity'"; then
+            echo "::warning::activities.js fetchActivities still uses wrong endpoint /activity — should be /activities"
+            PASS=false
+          fi
+
+          # api/activities.js: fetchActivities must check response.ok
+          # Verify the first function (before signupForActivity) has response.ok
+          if ! awk '/export async function fetchActivities/,/^}/' \
+            exercises/06-api-integration/starter/src/api/activities.js \
+            | grep -v "^\s*//" | grep -q "response\.ok\|res\.ok"; then
+            echo "::warning::fetchActivities() does not check response.ok"
+            PASS=false
+          fi
+
+          # api/activities.js: signup must pass email as query param in the URL
+          if ! grep -v "^\s*//" exercises/06-api-integration/starter/src/api/activities.js \
+             | grep -qE "email=|encodeURIComponent\(email\)"; then
+            echo "::warning::signupForActivity() is not passing the email as a URL query parameter"
+            PASS=false
+          fi
+
+          # ActivityList.jsx: must handle loading state
+          if ! grep -qE "loading|isLoading" exercises/06-api-integration/starter/src/components/ActivityList.jsx 2>/dev/null; then
+            echo "::warning::ActivityList.jsx does not handle a loading state"
+            PASS=false
+          fi
+
+          # ActivityList.jsx: must handle error state
+          if ! grep -v "^\s*//" exercises/06-api-integration/starter/src/components/ActivityList.jsx \
+             | grep -qE "\berror\b|Error"; then
+            echo "::warning::ActivityList.jsx does not handle an error state"
+            PASS=false
+          fi
+
+          echo "pass=$PASS" >> $GITHUB_OUTPUT
+
+      - name: Post next step on success
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'true'
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ github.repository }}
+          issue-number: ${{ steps.find_issue.outputs.issue_number }}
+          file: ${{ env.NEXT_STEP_FILE }}
+          vars: |
+            full_repo_name: ${{ github.repository }}
+            login: ${{ github.actor }}
+
+      - name: Update labels on success
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'true'
+        run: |
+          gh issue edit ${{ steps.find_issue.outputs.issue_number }} \
+            --remove-label "step-6" --add-label "step-7"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post try-again on failure
+        if: steps.check_label.outputs.active == 'true' && steps.run_checks.outputs.pass == 'false'
+        uses: GrantBirki/comment@v2.1.1
+        with:
+          repository: ${{ github.repository }}
+          issue-number: ${{ steps.find_issue.outputs.issue_number }}
+          file: exercise-toolkit/markdown-templates/step-feedback/try-again.md
+          vars: |
+            login: ${{ github.actor }}
