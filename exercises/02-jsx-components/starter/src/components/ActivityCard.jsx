@@ -1,11 +1,9 @@
-// Bug 3: props not received — function has no parameters
-// Bug 4: class should be className
-// Bug 5: title and description are undefined because props aren't destructured
-function ActivityCard() {
+function ActivityCard({ title, description, schedule }) {
   return (
-    <div class="card">
+    <div className="card">
       <h2>{title}</h2>
       <p>{description}</p>
+      <p>{schedule}</p>
     </div>
   )
 }
