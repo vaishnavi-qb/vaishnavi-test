@@ -1,16 +1,25 @@
 import { useState, useEffect } from 'react'
 import { fetchActivities } from '../api/activities'
 
-// Bug 4: no loading state — blank screen during fetch
-// Bug 5: no error state — failures are silently swallowed
-
 function ActivityList() {
   const [activities, setActivities] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
-    fetchActivities().then((data) => setActivities(data))
-    // no .catch() — errors disappear
+    fetchActivities()
+      .then((data) => {
+        setActivities(data)
+        setLoading(false)
+      })
+      .catch((err) => {
+        setError(err.message)
+        setLoading(false)
+      })
   }, [])
+
+  if (loading) return <p>Loading...</p>
+  if (error) return <p className="error">Error: {error}</p>
 
   return (
     <ul>
