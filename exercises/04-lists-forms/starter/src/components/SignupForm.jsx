@@ -1,14 +1,10 @@
 import { useState } from 'react'
 
-// Bug 2: handleSubmit missing the event parameter 'e'
-// Bug 3: e.preventDefault() not called — form submission reloads the page
-// Bug 4: input is uncontrolled — no value or onChange binding
-
 function SignupForm({ activityName, onSignup }) {
   const [email, setEmail] = useState('')
 
-  function handleSubmit() {
-    // prevent default form behavior here
+  function handleSubmit(e) {
+    e.preventDefault()
     onSignup(activityName, email)
     setEmail('')
   }
@@ -20,6 +16,8 @@ function SignupForm({ activityName, onSignup }) {
         id="email"
         type="email"
         placeholder="you@school.edu"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
       />
       <button type="submit">Sign Up</button>
     </form>
